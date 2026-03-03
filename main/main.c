@@ -268,6 +268,15 @@ void app_main(void) {
     ESP_LOGI(TAG, "UDP logger active - sending logs to %s:%d", CONFIG_UDP_LOGGER_IP, CONFIG_UDP_LOGGER_PORT);
 #endif
 
+    // Start web server first — dashboard available immediately
+    web_server_start(web_switch_callback);
+    g_original_vprintf = esp_log_set_vprintf(web_log_vprintf);
+
+    // Initialize MQTT with HA auto-discovery
+    mqtt_ha_init(mqtt_command_callback);
+
+    ESP_LOGI(TAG, "Web server and MQTT ready. Initializing Bluetooth...");
+
     // Initialize Bluetooth
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
@@ -334,15 +343,8 @@ void app_main(void) {
     };
     esp_timer_create(&reconnect_timer_args, &g_reconnect_timer);
 
-    // Start web server with switch callback
-    web_server_start(web_switch_callback);
-    g_original_vprintf = esp_log_set_vprintf(web_log_vprintf);
-
-    // Initialize MQTT with HA auto-discovery
-    mqtt_ha_init(mqtt_command_callback);
-
-    // Connect BLE immediately — stay connected permanently
-    ESP_LOGI(TAG, "Initialization complete. Connecting BLE...");
+    // Connect BLE — stay connected permanently
+    ESP_LOGI(TAG, "Connecting BLE...");
     tuya_ble_client_connect();
 
     // Main loop - just keep task alive
