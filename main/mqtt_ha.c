@@ -52,7 +52,7 @@ void mqtt_ha_publish_discovery(void) {
             "\"name\":\"%s\","
             "\"manufacturer\":\"Tuya\","
             "\"model\":\"BLE Breaker\","
-            "\"sw_version\":\"1.0.0\""
+            "\"sw_version\":\"" BUILD_VERSION "\""
         "}"
         "}",
         CONFIG_HA_DEVICE_NAME,

@@ -213,7 +213,7 @@ static void web_switch_callback(bool on) {
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "Tuya BLE Bridge starting...");
+    ESP_LOGI(TAG, "Tuya BLE Bridge v%s (build %d)", APP_VERSION, BUILD_NUMBER);
 
     // Initialize NVS
     esp_err_t ret = nvs_flash_init();

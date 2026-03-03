@@ -308,6 +308,6 @@ esp_err_t web_server_start(web_switch_cb_t switch_cb) {
     httpd_register_uri_handler(server, &switch_on_api);
     httpd_register_uri_handler(server, &switch_off_api);
 
-    ESP_LOGI(TAG, "Web server started on http://192.168.2.50/");
+    ESP_LOGI(TAG, "Web server started");
     return ESP_OK;
 }
