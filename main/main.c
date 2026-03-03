@@ -139,6 +139,11 @@ static void wifi_init_sta(void) {
 
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // Reduce TX power for stability (especially at close range)
+    // 8 = 2dBm (units are 0.25dBm, so 8 * 0.25 = 2dBm)
+    esp_wifi_set_max_tx_power(8);
+    ESP_LOGI(TAG, "WiFi TX power set to 2dBm");
+
     ESP_LOGI(TAG, "WiFi initialization finished. Connecting to %s", CONFIG_WIFI_SSID);
 }
 
