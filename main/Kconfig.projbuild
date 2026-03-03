@@ -1,0 +1,132 @@
+menu "Tuya BLE Breaker Configuration"
+
+    menu "WiFi"
+        config WIFI_SSID
+            string "WiFi SSID"
+            default "myssid"
+            help
+                SSID (network name) for the bridge to connect to.
+
+        config WIFI_PASSWORD
+            string "WiFi Password"
+            default "mypassword"
+            help
+                WiFi password (WPA or WPA2) for the bridge to use.
+
+        config USE_STATIC_IP
+            bool "Use static IP address"
+            default n
+            help
+                If enabled, use a static IP instead of DHCP.
+
+        config STATIC_IP
+            string "Static IP address"
+            default "192.168.1.50"
+            depends on USE_STATIC_IP
+            help
+                Static IP address for the bridge.
+
+        config STATIC_GW
+            string "Gateway IP address"
+            default "192.168.1.1"
+            depends on USE_STATIC_IP
+            help
+                Gateway IP address.
+
+        config STATIC_NETMASK
+            string "Netmask"
+            default "255.255.255.0"
+            depends on USE_STATIC_IP
+            help
+                Subnet mask.
+    endmenu
+
+    menu "Tuya Device"
+        config TUYA_DEVICE_MAC
+            string "Tuya Device MAC Address"
+            default "00:00:00:00:00:00"
+            help
+                BLE MAC address of the Tuya breaker device (e.g., AA:BB:CC:DD:EE:FF).
+
+        config TUYA_DEVICE_ID
+            string "Tuya Device ID"
+            default "your_device_id"
+            help
+                Tuya device ID from cloud (get via tinytuya).
+
+        config TUYA_LOCAL_KEY
+            string "Tuya Local Key"
+            default "your_local_key"
+            help
+                Tuya local key (full 16 chars, get via tinytuya).
+
+        config TUYA_UUID
+            string "Tuya UUID"
+            default "your_uuid"
+            help
+                Tuya device UUID (16 hex chars, get via tinytuya).
+
+        config TUYA_SWITCH_DP_ID
+            int "Switch Datapoint ID"
+            default 1
+            help
+                Tuya datapoint ID for the switch. Most breakers use DP 1,
+                but some devices use DP 2 or others.
+    endmenu
+
+    menu "MQTT"
+        config MQTT_BROKER_URI
+            string "MQTT Broker URI"
+            default "mqtt://192.168.1.100:1883"
+            help
+                MQTT broker URI (e.g., mqtt://host:port).
+
+        config MQTT_USERNAME
+            string "MQTT Username"
+            default ""
+            help
+                MQTT broker username (leave empty if not required).
+
+        config MQTT_PASSWORD
+            string "MQTT Password"
+            default ""
+            help
+                MQTT broker password (leave empty if not required).
+
+        config MQTT_TOPIC_PREFIX
+            string "MQTT Topic Prefix"
+            default "tuya_ble_breaker"
+            help
+                Prefix for all MQTT topics. Topics will be:
+                {prefix}/state, {prefix}/command, {prefix}/availability.
+
+        config HA_DEVICE_NAME
+            string "Home Assistant Device Name"
+            default "Tuya BLE Breaker"
+            help
+                Device name shown in Home Assistant.
+    endmenu
+
+    menu "Debug"
+        config UDP_LOGGER_ENABLED
+            bool "Enable UDP logger"
+            default n
+            help
+                Send ESP log output over UDP for remote debugging.
+
+        config UDP_LOGGER_IP
+            string "UDP Logger destination IP"
+            default "192.168.1.100"
+            depends on UDP_LOGGER_ENABLED
+            help
+                IP address to send UDP log messages to.
+
+        config UDP_LOGGER_PORT
+            int "UDP Logger destination port"
+            default 9999
+            depends on UDP_LOGGER_ENABLED
+            help
+                UDP port for log messages.
+    endmenu
+
+endmenu
