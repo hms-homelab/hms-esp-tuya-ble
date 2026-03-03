@@ -230,24 +230,18 @@ static esp_err_t root_handler(httpd_req_t *req) {
     return httpd_resp_send(req, html, strlen(html));
 }
 
-// POST /api/connect
+// POST /api/connect — delegates to main.c which manages reconnect state
 static esp_err_t connect_handler(httpd_req_t *req) {
-    extern esp_err_t tuya_ble_client_connect(void);
-    esp_err_t ret = tuya_ble_client_connect();
+    extern void web_connect_callback(void);
+    web_connect_callback();
     httpd_resp_set_type(req, "application/json");
-    if (ret == ESP_OK) {
-        return httpd_resp_sendstr(req, "{\"ok\":true}");
-    } else {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "{\"ok\":false,\"error\":\"%s\"}", esp_err_to_name(ret));
-        return httpd_resp_sendstr(req, buf);
-    }
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
-// POST /api/disconnect
+// POST /api/disconnect — delegates to main.c which stops auto-reconnect
 static esp_err_t disconnect_handler(httpd_req_t *req) {
-    extern void tuya_ble_client_disconnect(void);
-    tuya_ble_client_disconnect();
+    extern void web_disconnect_callback(void);
+    web_disconnect_callback();
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }

@@ -32,15 +32,21 @@ static EventGroupHandle_t s_wifi_event_group;
 // Current switch state
 static bool g_switch_state = false;
 
-// Pending command for connect-on-demand pattern
+// Pending command — queued while BLE is connecting
 static bool g_pending_command = false;
 static bool g_pending_command_on = false;
-static esp_timer_handle_t g_ble_disconnect_timer = NULL;
-#define BLE_DISCONNECT_TIMEOUT_MS  15000  // Disconnect BLE after 15s idle
+
+// Reconnect with exponential backoff
+static esp_timer_handle_t g_reconnect_timer = NULL;
+static uint32_t g_reconnect_delay_ms = 1000;  // Start at 1s
+#define RECONNECT_DELAY_MIN_MS   1000
+#define RECONNECT_DELAY_MAX_MS   60000   // Cap at 60s
+static bool g_manual_disconnect = false;       // Skip auto-reconnect if user hit disconnect
 
 // Forward declarations
 static void wifi_init_sta(void);
-static void ble_disconnect_timer_cb(void *arg);
+static void reconnect_timer_cb(void *arg);
+static void schedule_reconnect(void);
 
 // Log hook for web dashboard
 static vprintf_like_t g_original_vprintf = NULL;
@@ -136,36 +142,45 @@ static void wifi_init_sta(void) {
     ESP_LOGI(TAG, "WiFi initialization finished. Connecting to %s", CONFIG_WIFI_SSID);
 }
 
-// BLE disconnect timer - disconnects BLE after idle period to save resources
-static void ble_disconnect_timer_cb(void *arg) {
-    ESP_LOGI(TAG, "BLE idle timeout, disconnecting to save resources");
-    tuya_ble_client_disconnect();
-}
+// --- BLE reconnect with exponential backoff ---
 
-static void reset_ble_disconnect_timer(void) {
-    if (g_ble_disconnect_timer) {
-        esp_timer_stop(g_ble_disconnect_timer);  // OK if not running
-        esp_timer_start_once(g_ble_disconnect_timer,
-                             BLE_DISCONNECT_TIMEOUT_MS * 1000);
+static void reconnect_timer_cb(void *arg) {
+    tuya_connection_state_t state = tuya_ble_get_state();
+    if (state == TUYA_STATE_DISCONNECTED && !g_manual_disconnect) {
+        ESP_LOGI(TAG, "Reconnecting BLE (backoff %lums)...", (unsigned long)g_reconnect_delay_ms);
+        tuya_ble_client_connect();
     }
 }
 
-// Send a switch command - connects BLE if needed
+static void schedule_reconnect(void) {
+    if (g_manual_disconnect) return;
+
+    ESP_LOGI(TAG, "BLE reconnect in %lums", (unsigned long)g_reconnect_delay_ms);
+    esp_timer_stop(g_reconnect_timer);  // OK if not running
+    esp_timer_start_once(g_reconnect_timer, (uint64_t)g_reconnect_delay_ms * 1000);
+
+    // Exponential backoff: double delay, cap at max
+    g_reconnect_delay_ms *= 2;
+    if (g_reconnect_delay_ms > RECONNECT_DELAY_MAX_MS) {
+        g_reconnect_delay_ms = RECONNECT_DELAY_MAX_MS;
+    }
+}
+
+// Send a switch command - sends directly if connected, otherwise queues and connects
 static void send_switch_command(bool on) {
     tuya_connection_state_t state = tuya_ble_get_state();
     if (state == TUYA_STATE_READY) {
         // Already connected, send directly
         tuya_ble_send_switch_command(CONFIG_TUYA_SWITCH_DP_ID, on);
-        reset_ble_disconnect_timer();
     } else {
-        // Need to connect first, queue the command
-        ESP_LOGI(TAG, "BLE not connected, connecting to send %s...", on ? "ON" : "OFF");
+        // Queue command, ensure we're connecting
+        ESP_LOGI(TAG, "BLE not ready, queuing %s command...", on ? "ON" : "OFF");
         g_pending_command = true;
         g_pending_command_on = on;
         if (state == TUYA_STATE_DISCONNECTED) {
+            g_manual_disconnect = false;  // User wants action, override manual disconnect
             tuya_ble_client_connect();
         }
-        // Command will be sent when state becomes READY
     }
 }
 
@@ -173,20 +188,20 @@ static void send_switch_command(bool on) {
 static void tuya_state_callback(tuya_connection_state_t state) {
     ESP_LOGI(TAG, "Tuya state changed: %d (%s)", state, tuya_ble_state_str(state));
     if (state == TUYA_STATE_READY) {
+        // Connected — reset backoff
+        g_reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
         mqtt_ha_publish_availability(true);
-        // If there's a pending command, send it now
+
+        // Send pending command if any
         if (g_pending_command) {
             g_pending_command = false;
             ESP_LOGI(TAG, "Sending pending command: %s", g_pending_command_on ? "ON" : "OFF");
             tuya_ble_send_switch_command(CONFIG_TUYA_SWITCH_DP_ID, g_pending_command_on);
         }
-        // Start disconnect timer
-        reset_ble_disconnect_timer();
     } else if (state == TUYA_STATE_DISCONNECTED) {
         mqtt_ha_publish_availability(false);
-        if (g_ble_disconnect_timer) {
-            esp_timer_stop(g_ble_disconnect_timer);
-        }
+        // Auto-reconnect with backoff (unless user manually disconnected)
+        schedule_reconnect();
     }
 }
 
@@ -196,8 +211,6 @@ static void tuya_switch_callback(uint8_t dp_id, bool state) {
     g_switch_state = state;
     mqtt_ha_publish_state(state);
     web_server_set_switch_state(state);
-    // Reset disconnect timer - we just got activity
-    reset_ble_disconnect_timer();
 }
 
 // MQTT command callback (from HA or other MQTT clients)
@@ -210,6 +223,23 @@ static void mqtt_command_callback(bool on) {
 static void web_switch_callback(bool on) {
     ESP_LOGI(TAG, "Web command: %s", on ? "ON" : "OFF");
     send_switch_command(on);
+}
+
+// Web connect callback — manual connect, clears manual disconnect flag
+void web_connect_callback(void) {
+    g_manual_disconnect = false;
+    tuya_connection_state_t state = tuya_ble_get_state();
+    if (state == TUYA_STATE_DISCONNECTED) {
+        g_reconnect_delay_ms = RECONNECT_DELAY_MIN_MS;
+        tuya_ble_client_connect();
+    }
+}
+
+// Web disconnect callback — manual disconnect, stops auto-reconnect
+void web_disconnect_callback(void) {
+    g_manual_disconnect = true;
+    esp_timer_stop(g_reconnect_timer);
+    tuya_ble_client_disconnect();
 }
 
 void app_main(void) {
@@ -297,12 +327,12 @@ void app_main(void) {
         return;
     }
 
-    // Create BLE disconnect timer (fires after idle period)
-    const esp_timer_create_args_t timer_args = {
-        .callback = ble_disconnect_timer_cb,
-        .name = "ble_disconnect",
+    // Create reconnect timer for exponential backoff
+    const esp_timer_create_args_t reconnect_timer_args = {
+        .callback = reconnect_timer_cb,
+        .name = "ble_reconnect",
     };
-    esp_timer_create(&timer_args, &g_ble_disconnect_timer);
+    esp_timer_create(&reconnect_timer_args, &g_reconnect_timer);
 
     // Start web server with switch callback
     web_server_start(web_switch_callback);
@@ -311,9 +341,11 @@ void app_main(void) {
     // Initialize MQTT with HA auto-discovery
     mqtt_ha_init(mqtt_command_callback);
 
-    ESP_LOGI(TAG, "Initialization complete. BLE connects on demand (MQTT/Web command).");
+    // Connect BLE immediately — stay connected permanently
+    ESP_LOGI(TAG, "Initialization complete. Connecting BLE...");
+    tuya_ble_client_connect();
 
-    // Main loop - just keep task alive, no polling
+    // Main loop - just keep task alive
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(60000));
     }
